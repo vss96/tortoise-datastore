@@ -11,11 +11,8 @@ async fn hello() -> impl Responder {
 async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt::init();
     info!("Starting server on port 8080");
-    HttpServer::new(|| {
-        App::new()
-            .service(hello)
-    })
-    .bind("127.0.0.1:8080")?
-    .run()
-    .await
+    HttpServer::new(|| App::new().service(hello))
+        .bind("127.0.0.1:8080")?
+        .run()
+        .await
 }
