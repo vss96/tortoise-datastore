@@ -2,6 +2,7 @@ use super::memtable::{MemTable, MemTableEntry};
 use crate::{Operations, Result};
 use crossbeam_skiplist::SkipMap;
 use std::io::Write;
+use std::sync::{Arc, Mutex};
 use std::{
     fs::{self, File},
     io::{BufRead, BufReader, BufWriter},
@@ -10,9 +11,10 @@ use std::{
 
 const BLOCK_SIZE: usize = 256 * 1024;
 
+#[derive(Clone)]
 pub struct LsmEngine {
     path: PathBuf,
-    wal_writer: BufWriter<File>,
+    wal_writer: Arc<Mutex<BufWriter<File>>>,
     memtable: MemTable,
 }
 
@@ -23,8 +25,8 @@ impl LsmEngine {
         let wal_path = format!("{}/{}", path.to_string_lossy(), "wal.log");
         let wal_file = File::open(wal_path.clone())?;
         let memtable = restore_memtable(wal_file)?;
-        let wal_file = File::open(wal_path)?;
-        let wal_writer = BufWriter::new(wal_file);
+        let wal_file = File::create(wal_path)?;
+        let wal_writer = Arc::new(Mutex::new(BufWriter::new(wal_file)));
 
         Ok(LsmEngine {
             path,
@@ -48,7 +50,12 @@ impl LsmEngine {
         }
         let serialized_entry = serde_json::to_string(&entry)?;
         self.memtable.set(entry);
-        self.wal_writer.write_all(serialized_entry.as_bytes())?;
+        self.wal_writer
+            .lock()
+            .unwrap()
+            .write_all(serialized_entry.as_bytes())?;
+        self.wal_writer.lock().unwrap().write_all(b"\n")?;
+        self.wal_writer.lock().unwrap().flush()?;
         Ok(())
     }
 }

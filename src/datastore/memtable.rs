@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+#[derive(Clone)]
 pub struct MemTable {
     entries: Vec<MemTableEntry>,
     size: usize,
