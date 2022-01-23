@@ -12,3 +12,6 @@ tracing-subscriber = "0.2"
 anyhow = "1.0"
 thiserror = "1.0"
 serde_json="1.0"
+serde="1.0"
+crossbeam = "0.7.1"
+crossbeam-skiplist = { git = "https://github.com/crossbeam-rs/crossbeam.git", branch = "master" }
