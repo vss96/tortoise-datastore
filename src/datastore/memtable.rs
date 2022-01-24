@@ -5,7 +5,7 @@ pub struct MemTable {
     size: usize,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct MemTableEntry {
     pub key: String,
     pub value: String,
@@ -53,4 +53,36 @@ impl MemTable {
         }
         None
     }
+}
+
+#[test]
+fn memtable_test(){
+    let mut memtable = MemTable::new(Vec::new(), 0);
+    let entry1 = MemTableEntry {
+        key: "123".to_string(),
+        value: "456".to_string(),
+        timestamp: 12345678,
+    };
+    memtable.set(entry1.clone());
+
+    let entry2 = MemTableEntry {
+        key: "12".to_string(),
+        value: "789".to_string(),
+        timestamp: 12345678,
+    };
+    memtable.set(entry2.clone());
+
+    let entry3 = MemTableEntry {
+        key: "12PE".to_string(),
+        value: "7812A9".to_string(),
+        timestamp: 12345678,
+    };
+    memtable.set(entry3.clone());
+
+    assert_eq!(memtable.get("123".to_string()).unwrap(), entry1);
+    assert_eq!(memtable.get("12".to_string()).unwrap(), entry2);
+
+    assert_eq!(memtable.get_index("12PE".to_string()), Ok(2));
+
+    assert_eq!(memtable.get_index("ABCD".to_string()), Err(3));
 }
