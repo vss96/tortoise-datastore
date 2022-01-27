@@ -56,7 +56,7 @@ impl MemTable {
 }
 
 #[test]
-fn memtable_test(){
+fn memtable_test() {
     let mut memtable = MemTable::new(Vec::new(), 0);
     let entry1 = MemTableEntry {
         key: "123".to_string(),

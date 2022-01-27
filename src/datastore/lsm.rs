@@ -15,7 +15,7 @@ const BLOCK_SIZE: usize = 256 * 1024;
 pub struct LsmEngine {
     path: PathBuf,
     wal_writer: Arc<Mutex<BufWriter<File>>>,
-    memtable: MemTable,
+    memtable: Arc<Mutex<MemTable>>,
 }
 
 impl LsmEngine {
@@ -24,7 +24,7 @@ impl LsmEngine {
         fs::create_dir_all(&*path)?;
         let wal_path = format!("{}/{}", path.to_string_lossy(), "wal.log");
         let wal_file = File::open(wal_path.clone())?;
-        let memtable = restore_memtable(wal_file)?;
+        let memtable = Arc::new(Mutex::new(restore_memtable(wal_file)?));
         let wal_file = File::create(wal_path)?;
         let wal_writer = Arc::new(Mutex::new(BufWriter::new(wal_file)));
 
@@ -36,20 +36,22 @@ impl LsmEngine {
     }
 
     pub fn get(self, key: String) -> Option<MemTableEntry> {
-        self.memtable.get(key)
+        self.memtable.lock().unwrap().get(key)
     }
 
-    pub fn set(&mut self, key: String, value: String, timestamp: u128) -> Result<()> {
+    pub fn set(&self, key: String, value: String, timestamp: u128) -> Result<()> {
         let entry = MemTableEntry {
             key,
             value,
             timestamp,
         };
-        if self.memtable.len() > BLOCK_SIZE {
+        let mut memtable = self.memtable.lock().unwrap();
+        if memtable.len() > BLOCK_SIZE {
             // store memtable to disk
         }
         let serialized_entry = serde_json::to_string(&entry)?;
-        self.memtable.set(entry);
+        memtable.set(entry);
+        drop(memtable);
         self.wal_writer
             .lock()
             .unwrap()
