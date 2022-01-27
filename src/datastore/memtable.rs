@@ -53,6 +53,15 @@ impl MemTable {
         }
         None
     }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.size = 0;
+    }
+
+    pub fn entries(& self) -> Vec<MemTableEntry> {
+        self.entries.clone()
+    }
 }
 
 #[test]
@@ -78,6 +87,13 @@ fn memtable_test() {
         timestamp: 12345678,
     };
     memtable.set(entry3.clone());
+
+    let entry4 = MemTableEntry {
+        key: "123".to_string(),
+        value: "46".to_string(),
+        timestamp: 1234567,
+    };
+    memtable.set(entry4.clone());
 
     assert_eq!(memtable.get("123".to_string()).unwrap(), entry1);
     assert_eq!(memtable.get("12".to_string()).unwrap(), entry2);
