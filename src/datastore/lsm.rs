@@ -5,10 +5,10 @@ use std::sync::{Arc, Mutex};
 use std::{
     fs::{self, File},
     io::{BufRead, BufReader, BufWriter},
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
-const BLOCK_SIZE: usize = 1024 * 512 * 7;
+const BLOCK_SIZE: usize = 1024 * 512;
 
 #[derive(Clone)]
 pub struct LsmEngine {
@@ -48,7 +48,7 @@ impl LsmEngine {
         };
         let mut memtable = self.memtable.lock().unwrap();
         if memtable.len() > BLOCK_SIZE {
-            for entry in memtable.entries(){
+            for entry in memtable.entries() {
                 let serialized_entry = serde_json::to_string(&entry)?;
                 let mut sst_counter = self.sst_counter.lock().unwrap();
                 *sst_counter += 1;
@@ -58,7 +58,6 @@ impl LsmEngine {
                 writer.write_all(serialized_entry.as_bytes())?;
                 writer.write_all(b"\n")?;
                 writer.flush()?;
-                
             }
             memtable.clear();
             fs::remove_file("wal.log")?;
@@ -67,14 +66,17 @@ impl LsmEngine {
             return Ok(());
         }
         let serialized_entry = serde_json::to_string(&entry)?;
-        memtable.set(entry);
-        drop(memtable);
-        self.wal_writer
-            .lock()
-            .unwrap()
-            .write_all(serialized_entry.as_bytes())?;
-        self.wal_writer.lock().unwrap().write_all(b"\n")?;
-        self.wal_writer.lock().unwrap().flush()?;
+        match memtable.set(entry) {
+            INSERTED => {
+                self.wal_writer
+                    .lock()
+                    .unwrap()
+                    .write_all(serialized_entry.as_bytes())?;
+                self.wal_writer.lock().unwrap().write_all(b"\n")?;
+                self.wal_writer.lock().unwrap().flush()?;
+            }
+        }
+
         Ok(())
     }
 }

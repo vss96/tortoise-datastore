@@ -6,5 +6,5 @@ pub trait Operations {
 
 mod lsm;
 mod memtable;
-pub use self::memtable::MemTable;
 pub use self::lsm::LsmEngine;
+pub use self::memtable::MemTable;

@@ -12,6 +12,12 @@ pub struct MemTableEntry {
     pub timestamp: u128,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum MemTableOperation {
+    INSERTED,
+    UPDATED,
+    NONE,
+}
 impl MemTable {
     pub fn len(&self) -> usize {
         self.size
@@ -21,11 +27,11 @@ impl MemTable {
         MemTable { entries, size }
     }
 
-    pub fn set(&mut self, entry: MemTableEntry) {
-        match self.get_index(entry.key.clone()) {
+    pub fn set(&mut self, entry: MemTableEntry) -> MemTableOperation {
+        return match self.get_index(entry.key.clone()) {
             Ok(idx) => {
                 if self.entries[idx].timestamp > entry.timestamp {
-                    return;
+                    return MemTableOperation::NONE;
                 }
 
                 if entry.value.len() < self.entries[idx].value.len() {
@@ -35,12 +41,14 @@ impl MemTable {
                 }
 
                 self.entries[idx] = entry;
+                MemTableOperation::UPDATED
             }
             Err(idx) => {
                 self.size += entry.key.len() + entry.value.len() + 16;
-                self.entries.insert(idx, entry)
+                self.entries.insert(idx, entry);
+                MemTableOperation::INSERTED
             }
-        }
+        };
     }
 
     pub fn get_index(&self, key: String) -> Result<usize, usize> {
@@ -59,7 +67,7 @@ impl MemTable {
         self.size = 0;
     }
 
-    pub fn entries(& self) -> Vec<MemTableEntry> {
+    pub fn entries(&self) -> Vec<MemTableEntry> {
         self.entries.clone()
     }
 }
@@ -72,30 +80,38 @@ fn memtable_test() {
         value: "456".to_string(),
         timestamp: 12345678,
     };
-    memtable.set(entry1.clone());
+    assert_eq!(memtable.set(entry1.clone()), MemTableOperation::INSERTED);
 
     let entry2 = MemTableEntry {
         key: "12".to_string(),
         value: "789".to_string(),
         timestamp: 12345678,
     };
-    memtable.set(entry2.clone());
+    assert_eq!(memtable.set(entry2.clone()), MemTableOperation::INSERTED);
 
     let entry3 = MemTableEntry {
         key: "12PE".to_string(),
         value: "7812A9".to_string(),
         timestamp: 12345678,
     };
-    memtable.set(entry3.clone());
+    assert_eq!(memtable.set(entry3.clone()), MemTableOperation::INSERTED);
 
     let entry4 = MemTableEntry {
         key: "123".to_string(),
         value: "46".to_string(),
-        timestamp: 1234567,
+        timestamp: 12345678,
     };
-    memtable.set(entry4.clone());
+    assert_eq!(memtable.set(entry4.clone()), MemTableOperation::UPDATED);
 
-    assert_eq!(memtable.get("123".to_string()).unwrap(), entry1);
+    let entry5 = MemTableEntry {
+        key: "123".to_string(),
+        value: "46".to_string(),
+        timestamp: 123,
+    };
+
+    assert_eq!(memtable.set(entry5), MemTableOperation::NONE);
+
+    assert_eq!(memtable.get("123".to_string()).unwrap(), entry4);
     assert_eq!(memtable.get("12".to_string()).unwrap(), entry2);
 
     assert_eq!(memtable.get_index("12PE".to_string()), Ok(2));
