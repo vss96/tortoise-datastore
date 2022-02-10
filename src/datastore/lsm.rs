@@ -1,14 +1,17 @@
+use tokio::io::AsyncWriteExt;
+
 use super::memtable::{MemTable, MemTableEntry};
 use crate::Result;
 use std::io::Write;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::{
     fs::{self, File},
     io::{BufRead, BufReader, BufWriter},
     path::PathBuf,
 };
+use tokio::sync::Mutex;
 
-const BLOCK_SIZE: usize = 1024 * 512;
+const BLOCK_SIZE: usize = 256;
 
 #[derive(Clone)]
 pub struct LsmEngine {
@@ -36,47 +39,53 @@ impl LsmEngine {
         })
     }
 
-    pub fn get(self, key: String) -> Option<MemTableEntry> {
-        self.memtable.lock().unwrap().get(key)
+    pub async fn get(&self, key: String) -> Option<MemTableEntry> {
+        self.memtable.lock().await.get(key)
     }
 
-    pub fn set(&self, key: String, value: String, timestamp: u128) -> Result<()> {
+    pub async fn set(&self, key: String, value: String, timestamp: u128) -> Result<()> {
         let entry = MemTableEntry {
             key,
             value,
             timestamp,
         };
-        let mut memtable = self.memtable.lock().unwrap();
-        if memtable.len() > BLOCK_SIZE {
-            for entry in memtable.entries() {
-                let serialized_entry = serde_json::to_string(&entry)?;
-                let mut sst_counter = self.sst_counter.lock().unwrap();
-                *sst_counter += 1;
-                let sst_path = format!("{}/sst/{}.log", self.path.to_string_lossy(), sst_counter);
-                let sst_file = File::create(sst_path)?;
-                let mut writer = BufWriter::new(sst_file);
-                writer.write_all(serialized_entry.as_bytes())?;
-                writer.write_all(b"\n")?;
-                writer.flush()?;
-            }
-            memtable.clear();
-            fs::remove_file("wal.log")?;
-            let wal_file = File::create("wal.log")?;
-            *self.wal_writer.lock().unwrap() = BufWriter::new(wal_file);
-            return Ok(());
-        }
         let serialized_entry = serde_json::to_string(&entry)?;
-        match memtable.set(entry) {
-            INSERTED => {
-                self.wal_writer
-                    .lock()
-                    .unwrap()
-                    .write_all(serialized_entry.as_bytes())?;
-                self.wal_writer.lock().unwrap().write_all(b"\n")?;
-                self.wal_writer.lock().unwrap().flush()?;
-            }
-        }
+        let memtable_guard = self.memtable.clone();
 
+        let set_handle = tokio::spawn(async move {
+            let mut memtable = memtable_guard.lock().await;
+            memtable.set(entry).await;
+        });
+        let wal_writer_guard = self.wal_writer.clone();
+        let sst_counter_guard = self.sst_counter.clone();
+        let memtable_guard = self.memtable.clone();
+        let path = self.path.clone();
+        let disk_handle = tokio::spawn(async move {
+            let mut memtable = memtable_guard.lock().await;
+            if memtable.len() > BLOCK_SIZE {
+                for entry in memtable.entries() {
+                    let serialized_entry = serde_json::to_string(&entry).unwrap();
+                    let mut sst_counter = sst_counter_guard.lock().await;
+                    *sst_counter += 1;
+                    let sst_path = format!("{}/sst/{}.log", path.to_string_lossy(), sst_counter);
+                    let sst_file = File::create(sst_path).unwrap();
+                    let mut sst_writer = BufWriter::new(sst_file);
+                    sst_writer.write_all(serialized_entry.as_bytes()).unwrap();
+                    sst_writer.write_all(b"\n").unwrap();
+                    sst_writer.flush().unwrap();
+                }
+                memtable.clear();
+                fs::remove_file("wal.log").unwrap();
+                let wal_file = File::create("wal.log").unwrap();
+                *wal_writer_guard.lock().await = BufWriter::new(wal_file);
+            }
+        });
+        self.wal_writer
+            .lock()
+            .await
+            .write_all(serialized_entry.as_bytes())?;
+        self.wal_writer.lock().await.write_all(b"\n")?;
+        self.wal_writer.lock().await.flush()?;
         Ok(())
     }
 }

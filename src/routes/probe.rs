@@ -33,9 +33,15 @@ pub async fn update_probe(
     let serialized_value = serde_json::to_string(&probe_value);
     match serialized_value {
         Ok(value) => {
-            engine.set(probe_id.clone(), value, event_transmission_time);
+            let id = probe_id.clone();
+            actix_rt::spawn(async move {
+                engine
+                    .set(probe_id.clone(), value, event_transmission_time)
+                    .await
+                    .unwrap();
+            });
             let probe_response = ProbeResponse {
-                probeId: probe_id,
+                probeId: id,
                 eventId: event_id,
                 messageType: probe_value.messageType,
                 messageData: probe_value.messageData,
@@ -57,7 +63,7 @@ struct Info {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct ProbePayload {
+pub struct ProbePayload {
     probeId: String,
     eventId: String,
     messageType: String,
