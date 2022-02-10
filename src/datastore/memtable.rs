@@ -30,31 +30,29 @@ impl MemTable {
         MemTable { entries, size }
     }
 
-    pub async fn set(&mut self, entry: MemTableEntry) -> impl Future<Output= MemTableOperation> + '_ {
-        async {
+    pub fn set(&mut self, entry: MemTableEntry) -> MemTableOperation {
             return match self.get_index(entry.key.clone()) {
                 Ok(idx) => {
                     if self.entries[idx].timestamp > entry.timestamp {
                         return MemTableOperation::NONE;
                     }
 
-                    if entry.value.len() < self.entries[idx].value.len() {
-                        self.size -= self.entries[idx].value.len() - entry.value.len();
-                    } else {
-                        self.size += entry.value.len() - self.entries[idx].value.len();
-                    }
+                    // if entry.value.len() < self.entries[idx].value.len() {
+                    //     self.size -= self.entries[idx].value.len() - entry.value.len();
+                    // } else {
+                    //     self.size += entry.value.len() - self.entries[idx].value.len();
+                    // }
 
                     self.entries[idx] = entry;
                     MemTableOperation::UPDATED
                 }
                 Err(idx) => {
-                    self.size += entry.key.len() + entry.value.len() + 16;
+                    // self.size += entry.key.len() + entry.value.len() + 16;
                     self.entries.insert(idx, entry);
                     MemTableOperation::INSERTED
                 }
             };
         }
-    }
 
     pub fn get_index(&self, key: String) -> Result<usize, usize> {
         self.entries.binary_search_by_key(&key, |e| e.key.clone())

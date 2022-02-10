@@ -11,7 +11,7 @@ use std::{
 };
 use tokio::sync::Mutex;
 
-const BLOCK_SIZE: usize = 256;
+const BLOCK_SIZE: usize = 1000;
 
 #[derive(Clone)]
 pub struct LsmEngine {
@@ -50,42 +50,50 @@ impl LsmEngine {
             timestamp,
         };
         let serialized_entry = serde_json::to_string(&entry)?;
-        let memtable_guard = self.memtable.clone();
-
-        let set_handle = tokio::spawn(async move {
-            let mut memtable = memtable_guard.lock().await;
-            memtable.set(entry).await;
-        });
-        let wal_writer_guard = self.wal_writer.clone();
         let sst_counter_guard = self.sst_counter.clone();
-        let memtable_guard = self.memtable.clone();
         let path = self.path.clone();
-        let disk_handle = tokio::spawn(async move {
-            let mut memtable = memtable_guard.lock().await;
-            if memtable.len() > BLOCK_SIZE {
-                for entry in memtable.entries() {
-                    let serialized_entry = serde_json::to_string(&entry).unwrap();
+        let memtable_guard = self.memtable.clone();
+        let wal_writer_guard = self.wal_writer.clone();
+        if memtable_guard.lock().await.len() > BLOCK_SIZE{
+           tokio::spawn(async move {
+                    let mut memtable = memtable_guard.lock().await;
+                    
                     let mut sst_counter = sst_counter_guard.lock().await;
-                    *sst_counter += 1;
+                    
                     let sst_path = format!("{}/sst/{}.log", path.to_string_lossy(), sst_counter);
                     let sst_file = File::create(sst_path).unwrap();
                     let mut sst_writer = BufWriter::new(sst_file);
-                    sst_writer.write_all(serialized_entry.as_bytes()).unwrap();
-                    sst_writer.write_all(b"\n").unwrap();
-                    sst_writer.flush().unwrap();
-                }
-                memtable.clear();
-                fs::remove_file("wal.log").unwrap();
-                let wal_file = File::create("wal.log").unwrap();
-                *wal_writer_guard.lock().await = BufWriter::new(wal_file);
-            }
-        });
-        self.wal_writer
-            .lock()
-            .await
-            .write_all(serialized_entry.as_bytes())?;
-        self.wal_writer.lock().await.write_all(b"\n")?;
-        self.wal_writer.lock().await.flush()?;
+                    for entry in memtable.entries() {
+
+                        let serialized_entry = serde_json::to_string(&entry).unwrap();
+                        sst_writer.write_all(serialized_entry.as_bytes()).expect("SST write failed.");
+                        sst_writer.write_all(b"\n").expect("SST write failed.");
+                        
+                    }
+                    sst_writer.flush().expect("SST flush failed");
+                    *sst_counter += 1;
+                    memtable.clear();
+                    memtable.set(entry);
+                    fs::remove_file("wal.log").unwrap();
+                    let wal_file = File::create("wal.log").unwrap();
+                    *wal_writer_guard.lock().await = BufWriter::new(wal_file);
+                    let mut wal_writer = wal_writer_guard.lock().await;
+                    wal_writer
+                    .write_all(serialized_entry.as_bytes()).expect("Error while writing to WAL");
+                    wal_writer.write_all(b"\n").expect("Error while writing to WAL");
+                    wal_writer.flush().expect("Error while flushing");
+            });
+        }
+        else{
+            let mut memtable = self.memtable.lock().await;
+            memtable.set(entry);
+            drop(memtable);
+            let mut wal_writer = wal_writer_guard.lock().await;
+            wal_writer
+            .write_all(serialized_entry.as_bytes()).expect("Error while writing to WAL");
+            wal_writer.write_all(b"\n").expect("Error while writing to WAL");
+            wal_writer.flush().expect("Error while flushing");
+        }
         Ok(())
     }
 }
