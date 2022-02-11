@@ -1,4 +1,4 @@
-use super::memtable::{MemTable, MemTableEntry};
+use super::memtable::{MemTable, MemTableEntry, MemTableOperation};
 use crate::Result;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -7,8 +7,9 @@ use std::{
     io::{BufRead, BufReader, BufWriter},
     path::PathBuf,
 };
+use tracing::info;
 
-const BLOCK_SIZE: usize = 1024 * 512;
+const BLOCK_SIZE: usize = 1024 * 1024 * 2;
 
 #[derive(Clone)]
 pub struct LsmEngine {
@@ -47,34 +48,39 @@ impl LsmEngine {
             timestamp,
         };
         let mut memtable = self.memtable.lock().unwrap();
-        if memtable.len() > BLOCK_SIZE {
-            for entry in memtable.entries() {
-                let serialized_entry = serde_json::to_string(&entry)?;
-                let mut sst_counter = self.sst_counter.lock().unwrap();
-                *sst_counter += 1;
-                let sst_path = format!("{}/sst/{}.log", self.path.to_string_lossy(), sst_counter);
-                let sst_file = File::create(sst_path)?;
-                let mut writer = BufWriter::new(sst_file);
+        let serialized_entry = serde_json::to_string(&entry)?;
+        match memtable.set(entry) {
+            MemTableOperation::INSERTED => {
+                let mut writer = self.wal_writer.lock().unwrap();
+                
                 writer.write_all(serialized_entry.as_bytes())?;
                 writer.write_all(b"\n")?;
                 writer.flush()?;
+            },
+            MemTableOperation::UPDATED =>{info!("MemTable updated");},
+            MemTableOperation::NONE => {info!("Old timestamp entry, discarded");},
+        };
+        if memtable.len() > BLOCK_SIZE {
+            let mut sst_counter = self.sst_counter.lock().unwrap();
+            *sst_counter += 1;
+            let sst_path = format!("{}/sst/{}.log", self.path.to_string_lossy(), sst_counter);
+            let sst_file = File::create(sst_path)?;
+            let mut writer = BufWriter::new(sst_file);
+            drop(sst_counter);
+
+            for entry in memtable.entries() {
+                let serialized_entry = serde_json::to_string(&entry)?;
+
+                writer.write_all(serialized_entry.as_bytes())?;
+                writer.write_all(b"\n")?;
+                
             }
+            writer.flush()?;
             memtable.clear();
             fs::remove_file("wal.log")?;
             let wal_file = File::create("wal.log")?;
             *self.wal_writer.lock().unwrap() = BufWriter::new(wal_file);
             return Ok(());
-        }
-        let serialized_entry = serde_json::to_string(&entry)?;
-        match memtable.set(entry) {
-            INSERTED => {
-                self.wal_writer
-                    .lock()
-                    .unwrap()
-                    .write_all(serialized_entry.as_bytes())?;
-                self.wal_writer.lock().unwrap().write_all(b"\n")?;
-                self.wal_writer.lock().unwrap().flush()?;
-            }
         }
 
         Ok(())
