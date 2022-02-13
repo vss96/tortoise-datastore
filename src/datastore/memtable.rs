@@ -1,14 +1,20 @@
-use std::future::Future;
+use std::sync::Arc;
 
+use crossbeam_skiplist::{map::Entry, SkipMap};
 use serde::{Deserialize, Serialize};
-use tokio::task::JoinHandle;
+
 #[derive(Clone)]
 pub struct MemTable {
-    entries: Vec<MemTableEntry>,
-    size: usize,
+    pub entries: Arc<SkipMap<String, MemTableValue>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct MemTableValue {
+    pub value: String,
+    pub timestamp: u128,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct MemTableEntry {
     pub key: String,
     pub value: String,
@@ -26,51 +32,52 @@ impl MemTable {
         self.entries.len()
     }
 
-    pub fn new(entries: Vec<MemTableEntry>, size: usize) -> Self {
-        MemTable { entries, size }
-    }
-
-    pub fn set(&mut self, entry: MemTableEntry) -> MemTableOperation {
-            return match self.get_index(entry.key.clone()) {
-                Ok(idx) => {
-                    if self.entries[idx].timestamp > entry.timestamp {
-                        return MemTableOperation::NONE;
-                    }
-
-                    // if entry.value.len() < self.entries[idx].value.len() {
-                    //     self.size -= self.entries[idx].value.len() - entry.value.len();
-                    // } else {
-                    //     self.size += entry.value.len() - self.entries[idx].value.len();
-                    // }
-
-                    self.entries[idx] = entry;
-                    MemTableOperation::UPDATED
+    pub fn set(&self, entry: MemTableEntry) -> MemTableOperation {
+        let existing_value = self.get(entry.key.clone());
+        return match existing_value {
+            Some(existing_entry) => {
+                if entry.timestamp < existing_entry.value().timestamp {
+                    return MemTableOperation::NONE;
                 }
-                Err(idx) => {
-                    // self.size += entry.key.len() + entry.value.len() + 16;
-                    self.entries.insert(idx, entry);
-                    MemTableOperation::INSERTED
-                }
-            };
-        }
 
-    pub fn get_index(&self, key: String) -> Result<usize, usize> {
-        self.entries.binary_search_by_key(&key, |e| e.key.clone())
+                // if entry.value.len() < self.entries[idx].value.len() {
+                //     self.size -= self.entries[idx].value.len() - entry.value.len();
+                // } else {
+                //     self.size += entry.value.len() - self.entries[idx].value.len();
+                // }
+
+                self.entries.insert(
+                    entry.key,
+                    MemTableValue {
+                        value: entry.value,
+                        timestamp: entry.timestamp,
+                    },
+                );
+                MemTableOperation::UPDATED
+            }
+            None => {
+                // self.size += entry.key.len() + entry.value.len() + 16;
+                self.entries.insert(
+                    entry.key,
+                    MemTableValue {
+                        value: entry.value,
+                        timestamp: entry.timestamp,
+                    },
+                );
+                MemTableOperation::INSERTED
+            }
+        };
     }
 
-    pub fn get(&self, key: String) -> Option<MemTableEntry> {
-        if let Ok(idx) = self.get_index(key) {
-            return Some(self.entries[idx].clone());
-        }
-        None
+    pub fn get(&self, key: String) -> Option<Entry<String, MemTableValue>> {
+        self.entries.get(&key)
     }
 
-    pub fn clear(&mut self) {
+    pub fn clear(&self) {
         self.entries.clear();
-        self.size = 0;
     }
 
-    pub fn entries(&self) -> Vec<MemTableEntry> {
+    pub fn entries(&self) -> Arc<SkipMap<String, MemTableValue>> {
         self.entries.clone()
     }
 }

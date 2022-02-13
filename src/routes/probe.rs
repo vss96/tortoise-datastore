@@ -11,10 +11,11 @@ use crate::LsmEngine;
 
 #[put("/probe/{probe_id}/event/{event_id}")]
 pub async fn update_probe(
-    web::Path((probe_id, event_id)): web::Path<(String, String)>,
+    path: web::Path<(String, String)>,
     request_payload: Json<ProbePayload>,
     engine: web::Data<LsmEngine>,
 ) -> impl Responder {
+    let (probe_id, event_id) = path.into_inner();
     let payload = request_payload.into_inner();
     info!("{:?}", payload);
     let start = SystemTime::now();
@@ -34,7 +35,7 @@ pub async fn update_probe(
     match serialized_value {
         Ok(value) => {
             let id = probe_id.clone();
-            actix_rt::spawn(async move {
+            tokio::spawn(async move {
                 engine
                     .set(probe_id.clone(), value, event_transmission_time)
                     .await
