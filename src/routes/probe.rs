@@ -78,7 +78,7 @@ struct Message {
     measureValue: MeasureValueType,
     measureValueDescription: String,
     measureType: String,
-    componentReading: f64,
+    componentReading: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
