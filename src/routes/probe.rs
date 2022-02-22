@@ -1,4 +1,5 @@
 use actix_web::{
+    get,
     put,
     web::{self, Json, Path},
     HttpResponse, Responder,
@@ -28,6 +29,7 @@ pub async fn update_probe(
         eventId: event_id.clone(),
         messageType: payload.messageType,
         messageData: payload.messageData,
+        eventReceivedTime: event_received_time,
     };
 
     let serialized_value = serde_json::to_string(&probe_value);
@@ -54,6 +56,31 @@ pub async fn update_probe(
             info!("Could not serialize the values {}", e);
             HttpResponse::BadRequest().body("Error in serializing")
         }
+    }
+}
+
+#[get("/probe/{probe_id}/latest")]
+pub async fn get_probe(
+    probe_id: web::Path<String>,
+    engine: web::Data<LsmEngine>,
+) -> impl Responder {
+    let probe_id = probe_id.into_inner();
+    match engine.get(probe_id.clone()) {
+        Some(entry) => {
+            let event_transmission_time = entry.value().timestamp;
+            let probe_value: ProbeValue = serde_json::from_str(&entry.value().value).expect("Failed to deserialize probe values.");
+            let probe_response = ProbeResponse {
+                probeId: probe_id.clone(),
+                eventId: probe_value.eventId,
+
+                messageType: probe_value.messageType,
+                eventTransmissionTime: event_transmission_time,
+                messageData: probe_value.messageData,
+                eventReceivedTime: probe_value.eventReceivedTime,
+            };
+            HttpResponse::Ok().json(probe_response)
+        }
+        None => HttpResponse::NotFound().body("Required probe not found"),
     }
 }
 
@@ -112,4 +139,5 @@ struct ProbeValue {
     eventId: String,
     messageType: String,
     messageData: Vec<Message>,
+    eventReceivedTime: u128,
 }
