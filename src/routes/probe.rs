@@ -35,12 +35,9 @@ pub async fn update_probe(
     match serialized_value {
         Ok(value) => {
             let id = probe_id.clone();
-            actix_rt::spawn(async move {
-                engine
-                    .set(probe_id.clone(), value, event_transmission_time)
-                    .await
-                    .unwrap();
-            });
+            engine
+                .set(probe_id.clone(), value, event_transmission_time)
+                .unwrap();
             let probe_response = ProbeResponse {
                 probeId: id,
                 eventId: event_id,

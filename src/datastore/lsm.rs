@@ -9,13 +9,12 @@ use std::ffi::OsStr;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::{
     fs::{self, File},
     io::{BufRead, BufReader, BufWriter},
     path::PathBuf,
 };
-use tokio::sync::Mutex;
 
 const BLOCK_SIZE: usize = 1000;
 
@@ -58,7 +57,7 @@ impl LsmEngine {
         self.index.get(key)
     }
 
-    pub async fn set(&self, key: String, value: String, timestamp: u128) -> Result<()> {
+    pub fn set(&self, key: String, value: String, timestamp: u128) -> Result<()> {
         let entry = Record {
             key,
             value,
@@ -69,43 +68,40 @@ impl LsmEngine {
         let path = self.path.clone();
         let memtable_guard = self.memtable.clone();
         let wal_writer_guard = self.wal_writer.clone();
-        if memtable_guard.lock().await.len() > BLOCK_SIZE {
-            tokio::spawn(async move {
-                let mut memtable = memtable_guard.lock().await;
+        if memtable_guard.lock().unwrap().len() > BLOCK_SIZE {
+            let mut memtable = memtable_guard.lock().unwrap();
+            let mut sst_counter = sst_counter_guard.lock().unwrap();
 
-                let mut sst_counter = sst_counter_guard.lock().await;
-
-                let sst_path = format!("{}/sst/{}.log", path.to_string_lossy(), sst_counter);
-                let sst_file = File::create(sst_path).unwrap();
-                let mut sst_writer = BufWriter::new(sst_file);
-                for entry in memtable.entries() {
-                    let serialized_entry = serde_json::to_string(&entry).unwrap();
-                    sst_writer
-                        .write_all(serialized_entry.as_bytes())
-                        .expect("SST write failed.");
-                    sst_writer.write_all(b"\n").expect("SST write failed.");
-                }
-                sst_writer.flush().expect("SST flush failed");
-                *sst_counter += 1;
-                memtable.clear();
-                memtable.set(entry);
-                fs::remove_file("wal.log").unwrap();
-                let wal_file = File::create("wal.log").unwrap();
-                *wal_writer_guard.lock().await = BufWriter::new(wal_file);
-                let mut wal_writer = wal_writer_guard.lock().await;
-                wal_writer
+            let sst_path = format!("{}/sst/{}.log", path.to_string_lossy(), sst_counter);
+            let sst_file = File::create(sst_path).unwrap();
+            let mut sst_writer = BufWriter::new(sst_file);
+            for entry in memtable.entries() {
+                let serialized_entry = serde_json::to_string(&entry).unwrap();
+                sst_writer
                     .write_all(serialized_entry.as_bytes())
-                    .expect("Error while writing to WAL");
-                wal_writer
-                    .write_all(b"\n")
-                    .expect("Error while writing to WAL");
-                wal_writer.flush().expect("Error while flushing");
-            });
+                    .expect("SST write failed.");
+                sst_writer.write_all(b"\n").expect("SST write failed.");
+            }
+            sst_writer.flush().expect("SST flush failed");
+            *sst_counter += 1;
+            memtable.clear();
+            memtable.set(entry);
+            fs::remove_file("wal.log").unwrap();
+            let wal_file = File::create("wal.log").unwrap();
+            *wal_writer_guard.lock().unwrap() = BufWriter::new(wal_file);
+            let mut wal_writer = wal_writer_guard.lock().unwrap();
+            wal_writer
+                .write_all(serialized_entry.as_bytes())
+                .expect("Error while writing to WAL");
+            wal_writer
+                .write_all(b"\n")
+                .expect("Error while writing to WAL");
+            wal_writer.flush().expect("Error while flushing");
         } else {
-            let mut memtable = self.memtable.lock().await;
+            let mut memtable = self.memtable.lock().unwrap();
             memtable.set(entry);
             drop(memtable);
-            let mut wal_writer = wal_writer_guard.lock().await;
+            let mut wal_writer = wal_writer_guard.lock().unwrap();
             wal_writer
                 .write_all(serialized_entry.as_bytes())
                 .expect("Error while writing to WAL");
