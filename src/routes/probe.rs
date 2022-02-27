@@ -1,6 +1,5 @@
 use actix_web::{
-    get,
-    put,
+    get, put,
     web::{self, Json, Path},
     HttpResponse, Responder,
 };
@@ -68,7 +67,8 @@ pub async fn get_probe(
     match engine.get(probe_id.clone()) {
         Some(entry) => {
             let event_transmission_time = entry.value().timestamp;
-            let probe_value: ProbeValue = serde_json::from_str(&entry.value().value).expect("Failed to deserialize probe values.");
+            let probe_value: ProbeValue = serde_json::from_str(&entry.value().value)
+                .expect("Failed to deserialize probe values.");
             let probe_response = ProbeResponse {
                 probeId: probe_id.clone(),
                 eventId: probe_value.eventId,
@@ -102,7 +102,7 @@ struct Message {
     measureName: String,
     measureCode: MeasureCode,
     measureUnit: String,
-    measureValue: MeasureValueType,
+    measureValue: String,
     measureValueDescription: String,
     measureType: String,
     componentReading: String,

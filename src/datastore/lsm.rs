@@ -6,6 +6,7 @@ use crate::datastore::{Index, Record};
 use crate::Result;
 use crossbeam_skiplist::map::Entry;
 use std::ffi::OsStr;
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
@@ -32,20 +33,23 @@ impl LsmEngine {
         let path = path.into();
         fs::create_dir_all(&*path)?;
         let wal_path = format!("{}/{}", path.to_string_lossy(), "wal.log");
+        println!("Reached 1");
         let wal_file = File::open(wal_path.clone())?;
-        let memtable = Arc::new(Mutex::new(restore_memtable(wal_file)?));
-        let wal_file = File::create(wal_path.clone())?;
+        let memtable = restore_memtable(wal_file)?;
+        let wal_file = OpenOptions::new().append(true).open(wal_path.clone())?;
 
         let wal_writer = Arc::new(Mutex::new(BufWriter::new(wal_file)));
-
-        let sst_count = get_sst_count(format!("{:?}/sst/", path))?;
-        let index = restore_index(&path, wal_path, sst_count)?;
+        println!("Reached 2");
+        let sst_count = get_sst_count(format!("{}/sst/", path.to_string_lossy()))?;
+        println!("Reached 3 : {}", sst_count);
+        let index = restore_index(wal_path, sst_count, memtable.clone())?;
+        // println!("{:?}", index.get("1206".to_string()).unwrap());
 
         Ok(LsmEngine {
             path: Arc::new(path),
             wal_writer,
             sst_counter: Arc::new(Mutex::new(sst_count + 1)),
-            memtable,
+            memtable: Arc::new(Mutex::new(memtable)),
             index: Arc::new(index),
         })
     }
@@ -123,35 +127,36 @@ fn restore_memtable(wal_file: File) -> Result<MemTable> {
                 .expect("Couldn't deserialize string")
         })
         .collect();
-    let size: usize = entries
-        .iter()
-        .map(|x| x.value.len() + x.key.len() + 16)
-        .sum();
+    let size: usize = entries.len();
+    println!("Wal Size: {}", size);
     Ok(MemTable::new(entries, size))
 }
 
-fn restore_index(path: &Path, wal_path: String, sst_count: u64) -> Result<Index> {
+fn restore_index(wal_path: String, sst_count: u64, memtable: MemTable) -> Result<Index> {
     let index = Index::new(SkipMap::new());
     let wal_reader = BufReader::new(File::open(wal_path)?);
-    read_file(&index, wal_reader);
-    for count in 0..sst_count {
-        let sst_path = format!("{:?}/sst/{}.log", path, count);
-        let sst_reader = BufReader::new(File::open(sst_path)?);
-        read_file(&index, sst_reader);
+    index.read_memtable(memtable);
+    println!("Index size: {}", index.len());
+    for count in 1..sst_count + 1 {
+        let sst_path = format!("sst/{}.log", count);
+        println!("File count: {}", count);
+        match File::open(sst_path) {
+            Ok(file) => {
+                read_file(&index, BufReader::new(file));
+                println!("Index size: {}", index.len());
+            }
+            Err(_e) => continue,
+        };
     }
     Ok(index)
 }
 
 fn read_file(index: &Index, reader: BufReader<File>) {
-    reader
-        .lines()
-        .map(|l| {
-            serde_json::from_str(&l.expect("error mapping line"))
-                .expect("Couldn't deserialize string")
-        })
-        .map(|f| {
-            index.set(f);
-        });
+    for record in reader.lines().into_iter().map(|l| {
+        serde_json::from_str(&l.expect("error mapping line")).expect("Couldn't deserialize string")
+    }) {
+        index.set(record);
+    }
 }
 
 fn get_sst_count(sst_path: String) -> Result<u64> {

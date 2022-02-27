@@ -1,7 +1,7 @@
 use std::env::current_dir;
 
 use actix_web::{get, App, HttpResponse, HttpServer, Responder};
-use tortoise_datastore::{update_probe, LsmEngine};
+use tortoise_datastore::{get_probe, update_probe, LsmEngine};
 use tracing::info;
 use tracing_subscriber;
 
@@ -21,6 +21,7 @@ async fn main() -> std::io::Result<()> {
             .data(engine.clone())
             .service(hello)
             .service(update_probe)
+            .service(get_probe)
     })
     .bind("0.0.0.0:8088")?
     .run()

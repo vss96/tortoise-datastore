@@ -2,6 +2,8 @@ use crate::datastore::Record;
 use crossbeam_skiplist::map::Entry;
 use crossbeam_skiplist::SkipMap;
 
+use super::MemTable;
+
 pub struct Index {
     lookup: SkipMap<String, Record>,
 }
@@ -22,5 +24,15 @@ impl Index {
             }
         }
         self.lookup.insert(entry.key.clone(), entry);
+    }
+
+    pub fn len(&self) -> usize {
+        self.lookup.len()
+    }
+
+    pub fn read_memtable(&self, memtable: MemTable) {
+        for record in memtable.entries() {
+            self.set(record);
+        }
     }
 }
