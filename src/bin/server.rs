@@ -1,6 +1,6 @@
 use std::env::current_dir;
 
-use actix_web::{get, App, HttpResponse, HttpServer, Responder};
+use actix_web::{get, App, HttpResponse, HttpServer, Responder, web::Data};
 use tortoise_datastore::{get_probe, update_probe, LsmEngine};
 use tracing::info;
 use tracing_subscriber;
@@ -18,7 +18,7 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         App::new()
-            .app_data(engine.clone())
+            .app_data(Data::new(engine.clone()))
             .service(hello)
             .service(update_probe)
             .service(get_probe)
