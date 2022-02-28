@@ -18,7 +18,7 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         App::new()
-            .data(engine.clone())
+            .app_data(engine.clone())
             .service(hello)
             .service(update_probe)
             .service(get_probe)

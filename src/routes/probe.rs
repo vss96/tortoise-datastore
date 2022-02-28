@@ -17,7 +17,6 @@ pub async fn update_probe(
 ) -> impl Responder {
     let (probe_id, event_id) = path.into_inner();
     let payload = request_payload.into_inner();
-    info!("{:?}", payload);
     let start = SystemTime::now();
     let since_the_epoch = start
         .duration_since(UNIX_EPOCH)
@@ -36,12 +35,11 @@ pub async fn update_probe(
     match serialized_value {
         Ok(value) => {
             let id = probe_id.clone();
-            tokio::spawn(async move {
-                engine
-                    .set(probe_id.clone(), value, event_transmission_time)
-                    .await
-                    .unwrap();
-            });
+            engine
+                .set(probe_id.clone(), value, event_transmission_time)
+                .await
+                .unwrap();
+
             let probe_response = ProbeResponse {
                 probeId: id,
                 eventId: event_id,

@@ -1,7 +1,4 @@
-use std::future::Future;
-
 use crate::datastore::Record;
-use tokio::task::JoinHandle;
 
 #[derive(Clone)]
 pub struct MemTable {
