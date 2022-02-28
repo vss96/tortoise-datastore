@@ -29,7 +29,7 @@ async fn main() -> std::io::Result<()> {
             .service(update_probe)
             .service(get_probe)
     })
-    .bind("0.0.0.0:8088")?
+    .bind_openssl("0.0.0.0:8088", builder)?
     .run()
     .await
 }
