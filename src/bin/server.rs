@@ -1,22 +1,13 @@
-use rand::Rng;
-use std::{env::current_dir, sync::Mutex};
+use std::env::current_dir;
 
-use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
-use tortoise_datastore::{update_probe, LsmEngine};
+use actix_web::{get, web::Data, App, HttpResponse, HttpServer, Responder};
+use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
+use tortoise_datastore::{get_probe, update_probe, LsmEngine};
 use tracing::info;
 use tracing_subscriber;
 
 #[get("/")]
-async fn hello(engine: web::Data<LsmEngine>) -> impl Responder {
-    // let mut rng = rand::thread_rng();
-    //
-    // engine
-    //     .set(
-    //         rng.gen_range(0..1000000).to_string(),
-    //         "456".to_string(),
-    //         1234567,
-    //     )
-    //     .unwrap();
+async fn hello() -> impl Responder {
     HttpResponse::Ok().body("Hello world!")
 }
 
@@ -24,15 +15,21 @@ async fn hello(engine: web::Data<LsmEngine>) -> impl Responder {
 async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt::init();
     info!("Starting server on port 8088");
+    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
+    builder
+        .set_private_key_file("key.pem", SslFiletype::PEM)
+        .unwrap();
+    builder.set_certificate_chain_file("cert.pem").unwrap();
     let engine = LsmEngine::open(current_dir()?).unwrap();
 
     HttpServer::new(move || {
         App::new()
-            .data(engine.clone())
+            .app_data(Data::new(engine.clone()))
             .service(hello)
             .service(update_probe)
+            .service(get_probe)
     })
-    .bind("0.0.0.0:8088")?
+    .bind_openssl("0.0.0.0:8088", builder)?
     .run()
     .await
 }

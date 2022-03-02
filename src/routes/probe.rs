@@ -1,5 +1,5 @@
 use actix_web::{
-    put,
+    get, put,
     web::{self, Json, Path},
     HttpResponse, Responder,
 };
@@ -11,10 +11,11 @@ use crate::LsmEngine;
 
 #[put("/probe/{probe_id}/event/{event_id}")]
 pub async fn update_probe(
-    web::Path((probe_id, event_id)): web::Path<(String, String)>,
+    path: web::Path<(String, String)>,
     request_payload: Json<ProbePayload>,
     engine: web::Data<LsmEngine>,
 ) -> impl Responder {
+    let (probe_id, event_id) = path.into_inner();
     let payload = request_payload.into_inner();
     info!("{:?}", payload);
     let start = SystemTime::now();
@@ -28,13 +29,14 @@ pub async fn update_probe(
         eventId: event_id.clone(),
         messageType: payload.messageType,
         messageData: payload.messageData,
+        eventReceivedTime: event_received_time,
     };
 
     let serialized_value = serde_json::to_string(&probe_value);
     match serialized_value {
         Ok(value) => {
             let id = probe_id.clone();
-            actix_rt::spawn(async move {
+            tokio::spawn(async move {
                 engine
                     .set(probe_id.clone(), value, event_transmission_time)
                     .await
@@ -57,6 +59,58 @@ pub async fn update_probe(
     }
 }
 
+#[get("/probe/{probe_id}/latest")]
+pub async fn get_probe(
+    probe_id: web::Path<String>,
+    engine: web::Data<LsmEngine>,
+) -> impl Responder {
+    let probe_id = probe_id.into_inner();
+    let memtable_record = engine.get_memtable_record(probe_id.clone()).await;
+    match engine.get(probe_id.clone()) {
+        Some(entry) => {
+            let event_transmission_time = entry.value().timestamp;
+            if let Some(record) = memtable_record {
+                if record.timestamp > event_transmission_time {
+                    let probe_response =
+                        get_probe_response(probe_id.clone(), record.value, record.timestamp);
+                    return HttpResponse::Ok().json(probe_response);
+                }
+            }
+            let probe_response = get_probe_response(
+                probe_id.clone(),
+                entry.value().value.clone(),
+                event_transmission_time,
+            );
+            HttpResponse::Ok().json(probe_response)
+        }
+        None => {
+            if let Some(record) = memtable_record {
+                let probe_response =
+                    get_probe_response(probe_id.clone(), record.value, record.timestamp);
+                return HttpResponse::Ok().json(probe_response);
+            }
+            HttpResponse::NotFound().body("Required probe not found")
+        }
+    }
+}
+
+pub fn get_probe_response(
+    probe_id: String,
+    value: String,
+    event_transmission_time: u128,
+) -> ProbeResponse {
+    let probe_value: ProbeValue =
+        serde_json::from_str(&value).expect("Failed to deserialize probe values.");
+    ProbeResponse {
+        probeId: probe_id,
+        eventId: probe_value.eventId,
+        messageType: probe_value.messageType,
+        eventTransmissionTime: event_transmission_time,
+        messageData: probe_value.messageData,
+        eventReceivedTime: probe_value.eventReceivedTime,
+    }
+}
+
 #[derive(Deserialize)]
 struct Info {
     username: String,
@@ -75,7 +129,7 @@ struct Message {
     measureName: String,
     measureCode: MeasureCode,
     measureUnit: String,
-    measureValue: MeasureValueType,
+    measureValue: String,
     measureValueDescription: String,
     measureType: String,
     componentReading: String,
@@ -98,7 +152,7 @@ enum MeasureValueType {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct ProbeResponse {
+pub struct ProbeResponse {
     probeId: String,
     eventId: String,
     messageType: String,
@@ -112,4 +166,5 @@ struct ProbeValue {
     eventId: String,
     messageType: String,
     messageData: Vec<Message>,
+    eventReceivedTime: u128,
 }
