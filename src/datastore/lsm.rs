@@ -73,6 +73,7 @@ impl LsmEngine {
         let path = self.path.clone();
         let memtable_guard = self.memtable.clone();
         let wal_writer_guard = self.wal_writer.clone();
+        let index = self.index.clone();
         if memtable_guard.lock().await.len() > BLOCK_SIZE {
             tokio::spawn(async move {
                 let mut memtable = memtable_guard.lock().await;
@@ -83,6 +84,7 @@ impl LsmEngine {
                 let sst_file = File::create(sst_path).unwrap();
                 let mut sst_writer = BufWriter::new(sst_file);
                 for entry in memtable.entries() {
+                    index.set(entry.clone());
                     let serialized_entry = serde_json::to_string(&entry).unwrap();
                     sst_writer
                         .write_all(serialized_entry.as_bytes())
