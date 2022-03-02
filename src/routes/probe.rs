@@ -65,23 +65,49 @@ pub async fn get_probe(
     engine: web::Data<LsmEngine>,
 ) -> impl Responder {
     let probe_id = probe_id.into_inner();
+    let memtable_record = engine.get_memtable_record(probe_id.clone()).await;
     match engine.get(probe_id.clone()) {
         Some(entry) => {
             let event_transmission_time = entry.value().timestamp;
-            let probe_value: ProbeValue = serde_json::from_str(&entry.value().value)
-                .expect("Failed to deserialize probe values.");
-            let probe_response = ProbeResponse {
-                probeId: probe_id.clone(),
-                eventId: probe_value.eventId,
-
-                messageType: probe_value.messageType,
-                eventTransmissionTime: event_transmission_time,
-                messageData: probe_value.messageData,
-                eventReceivedTime: probe_value.eventReceivedTime,
-            };
+            if let Some(record) = memtable_record {
+                if record.timestamp > event_transmission_time {
+                    let probe_response =
+                        get_probe_response(probe_id.clone(), record.value, record.timestamp);
+                    return HttpResponse::Ok().json(probe_response);
+                }
+            }
+            let probe_response = get_probe_response(
+                probe_id.clone(),
+                entry.value().value.clone(),
+                event_transmission_time,
+            );
             HttpResponse::Ok().json(probe_response)
         }
-        None => HttpResponse::NotFound().body("Required probe not found"),
+        None => {
+            if let Some(record) = memtable_record {
+                let probe_response =
+                    get_probe_response(probe_id.clone(), record.value, record.timestamp);
+                return HttpResponse::Ok().json(probe_response);
+            }
+            HttpResponse::NotFound().body("Required probe not found")
+        }
+    }
+}
+
+pub fn get_probe_response(
+    probe_id: String,
+    value: String,
+    event_transmission_time: u128,
+) -> ProbeResponse {
+    let probe_value: ProbeValue =
+        serde_json::from_str(&value).expect("Failed to deserialize probe values.");
+    ProbeResponse {
+        probeId: probe_id,
+        eventId: probe_value.eventId,
+        messageType: probe_value.messageType,
+        eventTransmissionTime: event_transmission_time,
+        messageData: probe_value.messageData,
+        eventReceivedTime: probe_value.eventReceivedTime,
     }
 }
 
@@ -126,7 +152,7 @@ enum MeasureValueType {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct ProbeResponse {
+pub struct ProbeResponse {
     probeId: String,
     eventId: String,
     messageType: String,

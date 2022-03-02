@@ -58,6 +58,10 @@ impl LsmEngine {
         self.index.get(key)
     }
 
+    pub async fn get_memtable_record(&self, key: String) -> Option<Record> {
+        self.memtable.lock().await.get(key)
+    }
+
     pub async fn set(&self, key: String, value: String, timestamp: u128) -> Result<()> {
         let entry = Record {
             key,
