@@ -15,7 +15,7 @@ use std::{
     io::{BufRead, BufReader, BufWriter},
     path::PathBuf,
 };
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 const BLOCK_SIZE: usize = 1000;
 
@@ -33,15 +33,12 @@ impl LsmEngine {
         let path = path.into();
         fs::create_dir_all(&*path)?;
         let wal_path = format!("{}/{}", path.to_string_lossy(), "wal.log");
-        println!("Reached 1");
         let wal_file = File::open(wal_path.clone())?;
         let memtable = restore_memtable(wal_file)?;
         let wal_file = OpenOptions::new().append(true).open(wal_path.clone())?;
 
         let wal_writer = Arc::new(Mutex::new(BufWriter::new(wal_file)));
-        println!("Reached 2");
         let sst_count = get_sst_count(format!("{}/sst/", path.to_string_lossy()))?;
-        println!("Reached 3 : {}", sst_count);
         let index = restore_index(wal_path, sst_count, memtable.clone())?;
         // println!("{:?}", index.get("1206".to_string()).unwrap());
 
@@ -64,20 +61,37 @@ impl LsmEngine {
 
     pub async fn set(&self, key: String, value: String, timestamp: u128) -> Result<()> {
         let entry = Record {
-            key,
+            key: key.clone(),
             value,
             timestamp,
         };
+
+        if let Some(index_entry) = self.index.get(key){
+            if index_entry.value().timestamp > timestamp{
+                return Ok(());
+            }
+        }
+
         let serialized_entry = serde_json::to_string(&entry)?;
         let sst_counter_guard = self.sst_counter.clone();
         let path = self.path.clone();
-        let memtable_guard = self.memtable.clone();
         let wal_writer_guard = self.wal_writer.clone();
         let index = self.index.clone();
-        if memtable_guard.lock().await.len() > BLOCK_SIZE {
+        let mut wal_writer = wal_writer_guard.lock().await;
+        wal_writer
+            .write_all(serialized_entry.as_bytes())?;
+        wal_writer
+            .write_all(b"\n")?;
+        wal_writer.flush()?;
+        drop(wal_writer);    
+        let memtable_guard = self.memtable.clone();
+        let mut memtable = memtable_guard.lock_owned().await;
+        memtable.set(entry);
+        
+        if memtable.len() > BLOCK_SIZE {
             tokio::spawn(async move {
-                let mut memtable = memtable_guard.lock().await;
-
+                
+                let wal_writer_guard = wal_writer_guard.clone();
                 let mut sst_counter = sst_counter_guard.lock().await;
 
                 let sst_path = format!("{}/sst/{}.log", path.to_string_lossy(), sst_counter);
@@ -94,32 +108,12 @@ impl LsmEngine {
                 sst_writer.flush().expect("SST flush failed");
                 *sst_counter += 1;
                 memtable.clear();
-                memtable.set(entry);
+                drop(memtable);
                 fs::remove_file("wal.log").unwrap();
                 let wal_file = File::create("wal.log").unwrap();
                 *wal_writer_guard.lock().await = BufWriter::new(wal_file);
-                let mut wal_writer = wal_writer_guard.lock().await;
-                wal_writer
-                    .write_all(serialized_entry.as_bytes())
-                    .expect("Error while writing to WAL");
-                wal_writer
-                    .write_all(b"\n")
-                    .expect("Error while writing to WAL");
-                wal_writer.flush().expect("Error while flushing");
             });
-        } else {
-            let mut memtable = self.memtable.lock().await;
-            memtable.set(entry);
-            drop(memtable);
-            let mut wal_writer = wal_writer_guard.lock().await;
-            wal_writer
-                .write_all(serialized_entry.as_bytes())
-                .expect("Error while writing to WAL");
-            wal_writer
-                .write_all(b"\n")
-                .expect("Error while writing to WAL");
-            wal_writer.flush().expect("Error while flushing");
-        }
+        } 
         Ok(())
     }
 }

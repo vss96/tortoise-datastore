@@ -69,49 +69,49 @@ impl MemTable {
     }
 }
 
-// #[test]
-// fn memtable_test() {
-//     let mut memtable = MemTable::new(Vec::new(), 0);
-//     let entry1 = MemTableEntry {
-//         key: "123".to_string(),
-//         value: "456".to_string(),
-//         timestamp: 12345678,
-//     };
-//     assert_eq!(memtable.set(entry1.clone()), MemTableOperation::INSERTED);
+#[test]
+fn memtable_test() {
+    let mut memtable = MemTable::new(Vec::new(), 0);
+    let entry1 = Record {
+        key: "123".to_string(),
+        value: "456".to_string(),
+        timestamp: 12345678,
+    };
+    assert_eq!(memtable.set(entry1.clone()), MemTableOperation::INSERTED);
 
-//     let entry2 = MemTableEntry {
-//         key: "12".to_string(),
-//         value: "789".to_string(),
-//         timestamp: 12345678,
-//     };
-//     assert_eq!(memtable.set(entry2.clone()), MemTableOperation::INSERTED);
+    let entry2 = Record {
+        key: "12".to_string(),
+        value: "789".to_string(),
+        timestamp: 12345678,
+    };
+    assert_eq!(memtable.set(entry2.clone()), MemTableOperation::INSERTED);
 
-//     let entry3 = MemTableEntry {
-//         key: "12PE".to_string(),
-//         value: "7812A9".to_string(),
-//         timestamp: 12345678,
-//     };
-//     assert_eq!(memtable.set(entry3.clone()), MemTableOperation::INSERTED);
+    let entry3 = Record {
+        key: "12PE".to_string(),
+        value: "7812A9".to_string(),
+        timestamp: 12345678,
+    };
+    assert_eq!(memtable.set(entry3.clone()), MemTableOperation::INSERTED);
 
-//     let entry4 = MemTableEntry {
-//         key: "123".to_string(),
-//         value: "46".to_string(),
-//         timestamp: 12345678,
-//     };
-//     assert_eq!(memtable.set(entry4.clone()), MemTableOperation::UPDATED);
+    let entry4 = Record {
+        key: "123".to_string(),
+        value: "46".to_string(),
+        timestamp: 12345678,
+    };
+    assert_eq!(memtable.set(entry4.clone()), MemTableOperation::UPDATED);
 
-//     let entry5 = MemTableEntry {
-//         key: "123".to_string(),
-//         value: "46".to_string(),
-//         timestamp: 123,
-//     };
+    let entry5 = Record {
+        key: "123".to_string(),
+        value: "46".to_string(),
+        timestamp: 123,
+    };
 
-//     assert_eq!(memtable.set(entry5), MemTableOperation::NONE);
+    assert_eq!(memtable.set(entry5), MemTableOperation::NONE);
 
-//     assert_eq!(memtable.get("123".to_string()).unwrap(), entry4);
-//     assert_eq!(memtable.get("12".to_string()).unwrap(), entry2);
+    assert_eq!(memtable.get("123".to_string()).unwrap(), entry4);
+    assert_eq!(memtable.get("12".to_string()).unwrap(), entry2);
 
-//     assert_eq!(memtable.get_index("12PE".to_string()), Ok(2));
+    assert_eq!(memtable.get_index("12PE".to_string()), Ok(2));
 
-//     assert_eq!(memtable.get_index("ABCD".to_string()), Err(3));
-// }
+    assert_eq!(memtable.get_index("ABCD".to_string()), Err(3));
+}

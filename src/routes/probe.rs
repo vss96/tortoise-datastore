@@ -15,7 +15,6 @@ pub async fn update_probe(
     request_payload: Json<ProbePayload>,
     engine: web::Data<LsmEngine>,
 ) -> impl Responder {
-    let (probe_id, event_id) = path.into_inner();
     let payload = request_payload.into_inner();
     info!("{:?}", payload);
     let start = SystemTime::now();
@@ -26,7 +25,7 @@ pub async fn update_probe(
     let event_received_time = since_the_epoch.as_millis();
 
     let probe_value = ProbeValue {
-        eventId: event_id.clone(),
+        eventId: payload.eventId.clone(),
         messageType: payload.messageType,
         messageData: payload.messageData,
         eventReceivedTime: event_received_time,
@@ -35,16 +34,16 @@ pub async fn update_probe(
     let serialized_value = serde_json::to_string(&probe_value);
     match serialized_value {
         Ok(value) => {
-            let id = probe_id.clone();
+            let id = payload.probeId.clone();
             tokio::spawn(async move {
                 engine
-                    .set(probe_id.clone(), value, event_transmission_time)
+                    .set(payload.probeId.clone(), value, event_transmission_time)
                     .await
                     .unwrap();
             });
             let probe_response = ProbeResponse {
                 probeId: id,
-                eventId: event_id,
+                eventId: payload.eventId,
                 messageType: probe_value.messageType,
                 messageData: probe_value.messageData,
                 eventReceivedTime: event_received_time,
@@ -111,12 +110,8 @@ pub fn get_probe_response(
     }
 }
 
-#[derive(Deserialize)]
-struct Info {
-    username: String,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(non_snake_case)]
 pub struct ProbePayload {
     probeId: String,
     eventId: String,
@@ -125,6 +120,7 @@ pub struct ProbePayload {
     messageData: Vec<Message>,
 }
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(non_snake_case)]
 struct Message {
     measureName: String,
     measureCode: MeasureCode,
@@ -152,6 +148,7 @@ enum MeasureValueType {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(non_snake_case)]
 pub struct ProbeResponse {
     probeId: String,
     eventId: String,
@@ -162,6 +159,7 @@ pub struct ProbeResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(non_snake_case)]
 struct ProbeValue {
     eventId: String,
     messageType: String,
